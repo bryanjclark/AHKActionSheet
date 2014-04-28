@@ -41,12 +41,19 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
 @interface AHKActionSheet() <UITableViewDataSource, UITableViewDelegate>
 @property (strong, nonatomic) NSMutableArray *items;
-@property (weak, nonatomic, readwrite) UIWindow *previousKeyWindow;
-@property (strong, nonatomic) UIWindow *window;
-@property (weak, nonatomic) UIImageView *blurredBackgroundView;
+@property (strong, nonatomic) UIView *backgroundView;
+@property (strong, nonatomic) UIView *blurredBackgroundView;
 @property (weak, nonatomic) UITableView *tableView;
 @property (weak, nonatomic) UIButton *cancelButton;
 @property (weak, nonatomic) UIView *cancelButtonShadowView;
+@property (strong, nonatomic) AHKActionSheetViewController *actionSheetVC;
+
+@property (assign, nonatomic) BOOL isAnimatingAPresentationOrDismissal;
+@property (assign, nonatomic) BOOL isDismissing;
+@property (assign, nonatomic) BOOL viewHasAppeared;
+@property (assign, nonatomic) BOOL isPresented;
+@property (assign, nonatomic) BOOL statusBarHiddenPriorToPresentation;
+
 @end
 
 @implementation AHKActionSheet
@@ -188,6 +195,27 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     [self dismissAnimated:YES duration:kDefaultAnimationDuration completion:self.cancelHandler];
 }
 
+- (void)tableViewTapped:(UITapGestureRecognizer *)tapGesture
+{
+    CGPoint tapGesturePoint = [tapGesture locationInView:nil];
+    //Is the tap inside the tableview?
+    __block BOOL shouldDismiss = YES;
+    [self.tableView.visibleCells enumerateObjectsUsingBlock:^(UITableViewCell *cell, NSUInteger idx, BOOL *stop) {
+        CGRect cellRect = [self.tableView convertRect:cell.frame toView:nil];
+        if (CGRectContainsPoint(cellRect, tapGesturePoint)) {
+            NSLog(@"Tapped cell %i", idx);
+            shouldDismiss = NO;
+            NSIndexPath *idxPath = [NSIndexPath indexPathForItem:idx inSection:0];
+            [self.tableView selectRowAtIndexPath:idxPath animated:NO scrollPosition:UITableViewScrollPositionNone];
+            [self tableView:self.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForItem:idx inSection:0]];
+        }
+    }];
+    if (shouldDismiss) {
+        NSLog(@"Dismissing");
+        [self dismissAnimated:YES];
+    }
+}
+
 #pragma mark - Public
 
 - (void)addButtonWithTitle:(NSString *)title type:(AHKActionSheetButtonType)type handler:(AHKActionSheetHandler)handler
@@ -205,59 +233,123 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     [self.items addObject:item];
 }
 
-- (void)show
+- (void)showFromViewController:(UIViewController *)viewController
 {
-    NSAssert([self.items count] > 0, @"Please add some buttons before calling -show.");
-
-    BOOL actionSheetIsVisible = !!self.window; // action sheet is visible iff it's associated with a window
+	NSAssert([self.items count] > 0, @"Please add some buttons before calling -show.");
+    
+    BOOL actionSheetIsVisible = !!self.actionSheetVC; // action sheet is visible iff it's associated with a viewController
     if (actionSheetIsVisible) {
         return;
-    }
-
-    self.previousKeyWindow = [UIApplication sharedApplication].keyWindow;
-    UIImage *previousKeyWindowSnapshot = [self.previousKeyWindow.rootViewController.view AHKsnapshotImage];
-
-    [self setUpNewWindow];
-    [self setUpBlurredBackgroundWithSnapshot:previousKeyWindowSnapshot];
+   }
+    
+    self.bounds = [UIScreen mainScreen].bounds;
+    
+	_statusBarHiddenPriorToPresentation = [UIApplication sharedApplication].statusBarHidden;
+	[self setIsAnimatingAPresentationOrDismissal:YES];
+	[self setUserInteractionEnabled:NO];
+	self.backgroundView = [self snapshotFromParentmostViewController:viewController];
+	self.blurredBackgroundView = [self blurredSnapshotFromParentmostViewController:viewController];
+	self.blurredBackgroundView.alpha = 0;
+	[self.backgroundView addSubview:self.blurredBackgroundView];
+    
+	[self insertSubview:self.backgroundView atIndex:0];
+    
+    _actionSheetVC = [[AHKActionSheetViewController alloc] initWithNibName:nil bundle:nil];
+    _actionSheetVC.actionSheet = self;
+    
     [self setUpCancelButton];
-    [self setUpTableView];
-
-    // Animate sliding in tableView and cancel button with keyframe animation for a nicer effect.
-    [UIView animateKeyframesWithDuration:kDefaultAnimationDuration delay:0 options:0 animations:^{
-        self.blurredBackgroundView.alpha = 1.0f;
-
-        [UIView addKeyframeWithRelativeStartTime:0.3f relativeDuration:0.7f animations:^{
-            self.cancelButton.frame = CGRectMake(0,
-                                                 CGRectGetMaxY(self.bounds) - self.cancelButtonHeight,
-                                                 CGRectGetWidth(self.bounds),
-                                                 self.cancelButtonHeight);
-
-            // manual calculation of table's contentSize.height
-            CGFloat tableContentHeight = [self.items count] * self.buttonHeight + CGRectGetHeight(self.tableView.tableHeaderView.frame);
-
-            CGFloat topInset;
-            BOOL buttonsFitInWithoutScrolling = tableContentHeight < CGRectGetHeight(self.tableView.frame) * (1.0 - topSpaceMarginFraction);
-            if (buttonsFitInWithoutScrolling) {
-                // show all buttons if there isn't many
-                topInset = CGRectGetHeight(self.tableView.frame) - tableContentHeight;
-            } else {
-                // leave an empty space on the top to make the control look similar to UIActionSheet
-                topInset = round(CGRectGetHeight(self.tableView.frame) * topSpaceMarginFraction);
-            }
-            self.tableView.contentInset = UIEdgeInsetsMake(topInset, 0, 0, 0);
+	[self setUpTableView];
+    
+	[viewController presentViewController:_actionSheetVC animated:NO completion:^{
+		[UIView animateKeyframesWithDuration:kDefaultAnimationDuration delay:0 options:0 animations:^{
+            self.blurredBackgroundView.alpha = 1.0f;
+            
+            [UIView addKeyframeWithRelativeStartTime:0.3f relativeDuration:0.7f animations:^{
+                self.cancelButton.frame = CGRectMake(0,
+                                                     CGRectGetMaxY(self.bounds) - self.cancelButtonHeight,
+                                                     CGRectGetWidth(self.bounds),
+                                                     self.cancelButtonHeight);
+                
+                // manual calculation of table's contentSize.height
+                CGFloat tableContentHeight = [self.items count] * self.buttonHeight + CGRectGetHeight(self.tableView.tableHeaderView.frame);
+                
+                CGFloat topInset;
+                BOOL buttonsFitInWithoutScrolling = tableContentHeight < CGRectGetHeight(self.tableView.frame) * (1.0 - topSpaceMarginFraction);
+                if (buttonsFitInWithoutScrolling) {
+                    // show all buttons if there isn't many
+                    topInset = CGRectGetHeight(self.tableView.frame) - tableContentHeight;
+                } else {
+                    // leave an empty space on the top to make the control look similar to UIActionSheet
+                    topInset = round(CGRectGetHeight(self.tableView.frame) * topSpaceMarginFraction);
+                }
+                self.tableView.contentInset = UIEdgeInsetsMake(topInset, 0, 0, 0);
+            }];
+        } completion:^(BOOL finished) {
+            self.userInteractionEnabled = YES;
         }];
-    } completion:nil];
-}
+	}];
+    
+    
+
+	}
 
 - (void)dismissAnimated:(BOOL)animated
 {
-    [self dismissAnimated:animated duration:kDefaultAnimationDuration completion:self.cancelHandler];
+	[self dismissAnimated:animated duration:kDefaultAnimationDuration completion:self.cancelHandler];
 }
+
+
+
 
 #pragma mark - Private
 
+#pragma mark Snapshots
+
+- (UIView *)snapshotFromParentmostViewController:(UIViewController *)viewController {
+    
+	UIViewController *presentingViewController = viewController.view.window.rootViewController;
+	while (presentingViewController.presentedViewController) presentingViewController = presentingViewController.presentedViewController;
+	UIView *snapshot = [presentingViewController.view snapshotViewAfterScreenUpdates:YES];
+	[snapshot setClipsToBounds:NO];
+	return snapshot;
+}
+
+- (UIView *)blurredSnapshotFromParentmostViewController:(UIViewController *)viewController {
+    
+	UIViewController *presentingViewController = viewController.view.window.rootViewController;
+	while (presentingViewController.presentedViewController) presentingViewController = presentingViewController.presentedViewController;
+    
+	CGFloat outerBleed = 0.0f;
+	CGRect contextBounds = CGRectInset(presentingViewController.view.bounds, -outerBleed, -outerBleed);
+	UIGraphicsBeginImageContextWithOptions(contextBounds.size, YES, 0);
+	CGContextRef context = UIGraphicsGetCurrentContext();
+	CGContextConcatCTM(context, CGAffineTransformMakeTranslation(outerBleed, outerBleed));
+	[presentingViewController.view.layer renderInContext:context];
+	UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    
+	UIGraphicsEndImageContext();
+    
+	UIImage *blurredImage = [image AHKapplyBlurWithRadius:self.blurRadius
+												tintColor:self.blurTintColor
+									saturationDeltaFactor:1.0f
+												maskImage:nil];
+    
+	UIImageView *imageView = [[UIImageView alloc] initWithFrame:contextBounds];
+	[imageView setImage:blurredImage];
+	[imageView setAutoresizingMask:UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth];
+	[imageView setBackgroundColor:[UIColor blackColor]];
+    
+	return imageView;
+}
+
 - (void)dismissAnimated:(BOOL)animated duration:(CGFloat)duration completion:(AHKActionSheetHandler)completionHandler
 {
+    
+    [self setUserInteractionEnabled:NO];
+    self.isAnimatingAPresentationOrDismissal = YES;
+    self.isDismissing = YES;
+    
+    
     // delegate isn't needed anymore because tableView will be hidden (and we don't want delegate methods to be called now)
     self.tableView.delegate = nil;
     self.tableView.userInteractionEnabled = NO;
@@ -266,16 +358,16 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
     void(^tearDownView)(void) = ^(void) {
         // remove the views because it's easiest to just recreate them if the action sheet is shown again
-        for (UIView *view in @[self.tableView, self.cancelButton, self.blurredBackgroundView, self.window]) {
+        for (UIView *view in @[self.tableView, self.cancelButton, self.blurredBackgroundView, self.backgroundView]) {
             [view removeFromSuperview];
         }
-
-        self.window = nil;
-        [self.previousKeyWindow makeKeyAndVisible];
-
-        if (completionHandler) {
-            completionHandler(self);
-        }
+        
+        // Needed if dismissing from a different orientation then the one we started with
+        [self.actionSheetVC.presentingViewController dismissViewControllerAnimated:NO completion:^{
+            if (completionHandler) {
+                completionHandler(self);
+            }
+        }];
     };
 
     if (animated) {
@@ -295,32 +387,6 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     } else {
         tearDownView();
     }
-}
-
-- (void)setUpNewWindow
-{
-    AHKActionSheetViewController *actionSheetVC = [[AHKActionSheetViewController alloc] initWithNibName:nil bundle:nil];
-    actionSheetVC.actionSheet = self;
-
-    self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    self.window.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.window.opaque = NO;
-    self.window.rootViewController = actionSheetVC;
-    [self.window makeKeyAndVisible];
-}
-
-- (void)setUpBlurredBackgroundWithSnapshot:(UIImage *)previousKeyWindowSnapshot
-{
-    UIImage *blurredViewSnapshot = [previousKeyWindowSnapshot
-                                    AHKapplyBlurWithRadius:self.blurRadius
-                                    tintColor:self.blurTintColor
-                                    saturationDeltaFactor:self.blurSaturationDeltaFactor
-                                    maskImage:nil];
-    UIImageView *backgroundView = [[UIImageView alloc] initWithImage:blurredViewSnapshot];
-    backgroundView.frame = self.bounds;
-    backgroundView.alpha = 0.0f;
-    [self addSubview:backgroundView];
-    self.blurredBackgroundView = backgroundView;
 }
 
 - (void)setUpCancelButton
@@ -379,6 +445,9 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     tableView.contentInset = UIEdgeInsetsMake(CGRectGetHeight(self.bounds), 0, 0, 0);
 
     self.tableView = tableView;
+    
+    UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tableViewTapped:)];
+    [self.tableView addGestureRecognizer:tapGesture];
 
     [self setUpTableViewHeader];
 }
