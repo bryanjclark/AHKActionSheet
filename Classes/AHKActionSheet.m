@@ -11,9 +11,8 @@
 #import "AHKActionSheetViewController.h"
 #import "UIView+Snapshots.h"
 #import "UIImage+AHKAdditions.h"
+#import "AHKActionSheetTableViewCell.h"
 
-
-static CGFloat const kDefaultAnimationDuration = 0.5f;
 // Length of the range at which the blurred background is being hidden when the user scrolls the tableView to the top.
 static CGFloat kBlurFadeRangeSize = 200.0f;
 static NSString * const kCellIdentifier = @"Cell";
@@ -23,7 +22,7 @@ static CGFloat autoDismissOffset = 80.0f;
 static CGFloat flickDownHandlingOffset = 20.0f;
 static CGFloat flickDownMinVelocity = 2000.0f;
 // How much free space to leave at the top (above the tableView's contents) when there's a lot of elements. It makes this control look similar to the UIActionSheet.
-static CGFloat topSpaceMarginFraction = 0.333f;
+static CGFloat topSpaceMarginFraction = 0.0f;
 
 
 /// Used for storing button configuration.
@@ -44,8 +43,6 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 @property (strong, nonatomic) UIView *backgroundView;
 @property (strong, nonatomic) UIView *blurredBackgroundView;
 @property (weak, nonatomic) UITableView *tableView;
-@property (weak, nonatomic) UIButton *cancelButton;
-@property (weak, nonatomic) UIView *cancelButtonShadowView;
 @property (strong, nonatomic) AHKActionSheetViewController *actionSheetVC;
 
 @property (assign, nonatomic) BOOL isAnimatingAPresentationOrDismissal;
@@ -81,6 +78,11 @@ static CGFloat topSpaceMarginFraction = 0.333f;
                                                       NSForegroundColorAttributeName : [UIColor redColor] }];
     [appearance setTitleTextAttributes:@{ NSFontAttributeName : [UIFont systemFontOfSize:14.0f],
                                                       NSForegroundColorAttributeName : [UIColor grayColor] }];
+    [appearance setPresentationDuration:@0.3];
+    [appearance setPresentationSpringVelocity:@5];
+    [appearance setPresentationSpringDamping:@10];
+    [appearance setDismissalDuration:@0.3];
+    [appearance setDismissalDurationFlick:@0.2];
 }
 
 - (instancetype)initWithTitle:(NSString *)title
@@ -90,6 +92,7 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     if (self) {
         _title = title;
         _cancelButtonTitle = @"Cancel";
+        
     }
 
     return self;
@@ -110,35 +113,57 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView
 {
-    return 1;
+    return 2;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return [self.items count];
+    if (section == 0) {
+        return self.items.count;
+    } else if (section == 1) {
+        return 1;
+    }
+    
+    return 0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier forIndexPath:indexPath];
-    AHKActionSheetItem *item = self.items[indexPath.row];
-
-    NSDictionary *attributes = item.type == AHKActionSheetButtonTypeDefault ? self.buttonTextAttributes : self.destructiveButtonTextAttributes;
-    NSAttributedString *attrTitle = [[NSAttributedString alloc] initWithString:item.title attributes:attributes];
-    cell.textLabel.attributedText = attrTitle;
-    cell.textLabel.textAlignment = [self.buttonTextCenteringEnabled boolValue] ? NSTextAlignmentCenter : NSTextAlignmentLeft;
-
-    // Use image with template mode with color the same as the text (when enabled).
-    cell.imageView.image = [self.automaticallyTintButtonImages boolValue] ? [item.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : item.image;
-    cell.imageView.tintColor = attributes[NSForegroundColorAttributeName] ? attributes[NSForegroundColorAttributeName] : [UIColor blackColor];
-
+    AHKActionSheetTableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier forIndexPath:indexPath];
     cell.backgroundColor = [UIColor clearColor];
-
     if (self.selectedBackgroundColor && ![cell.selectedBackgroundView.backgroundColor isEqual:self.selectedBackgroundColor]) {
         cell.selectedBackgroundView = [[UIView alloc] init];
         cell.selectedBackgroundView.backgroundColor = self.selectedBackgroundColor;
     }
 
+    if (indexPath.section == 0) {
+        AHKActionSheetItem *item = self.items[indexPath.row];
+        
+        NSDictionary *attributes = item.type == AHKActionSheetButtonTypeDefault ? self.buttonTextAttributes : self.destructiveButtonTextAttributes;
+        NSAttributedString *attrTitle = [[NSAttributedString alloc] initWithString:item.title attributes:attributes];
+        cell.textLabel.attributedText = attrTitle;
+        cell.textLabel.textAlignment = [self.buttonTextCenteringEnabled boolValue] ? NSTextAlignmentCenter : NSTextAlignmentLeft;
+        
+        // Use image with template mode with color the same as the text (when enabled).
+        cell.imageView.image = [self.automaticallyTintButtonImages boolValue] ? [item.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : item.image;
+        cell.imageView.tintColor = attributes[NSForegroundColorAttributeName] ? attributes[NSForegroundColorAttributeName] : [UIColor blackColor];
+        
+        //If we have a separator color, here's where we make it
+        if (!cell.bottomStroke) {
+            cell.bottomStroke = [[UIView alloc] initWithFrame:CGRectMake(0, cell.frame.size.height, cell.frame.size.width, 0.5)];
+            [cell.contentView addSubview:cell.bottomStroke];
+        }
+        cell.bottomStroke.backgroundColor = self.separatorColor;
+
+        
+    } else if (indexPath.section == 1) {
+        NSDictionary *attrs = self.cancelButtonTextAttributes;
+        NSAttributedString *attrTitle = [[NSAttributedString alloc] initWithString:self.cancelButtonTitle attributes:attrs];
+        cell.textLabel.attributedText = attrTitle;
+        cell.textLabel.textAlignment = NSTextAlignmentCenter;
+        cell.bottomStroke.backgroundColor = [UIColor clearColor];
+    }
+    
     return cell;
 }
 
@@ -146,13 +171,22 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    AHKActionSheetItem *item = self.items[indexPath.row];
-    [self dismissAnimated:YES duration:kDefaultAnimationDuration completion:item.handler];
+    if (indexPath.section == 0) {
+        AHKActionSheetItem *item = self.items[indexPath.row];
+        [self dismissAnimated:YES duration:self.dismissalDuration.floatValue completion:item.handler];
+    } else if (indexPath.section == 1) {
+        [self dismissAnimated:YES duration:self.dismissalDuration.floatValue completion:self.cancelHandler];
+    }
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    return self.buttonHeight;
+    if (indexPath.section == 0) {
+        return self.buttonHeight;
+    } else {
+        return self.cancelButtonHeight;
+    }
+
 }
 
 #pragma mark - UIScrollViewDelegate
@@ -170,10 +204,9 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     BOOL shouldSlideDown = scrollView.contentOffset.y < -self.tableView.contentInset.top - autoDismissOffset;
     if (viewWasFlickedDown) {
         // use a shorter duration for a flick down animation
-        static CGFloat duration = 0.2f;
-        [self dismissAnimated:YES duration:duration completion:self.cancelHandler];
+        [self dismissAnimated:YES duration:self.dismissalDurationFlick.floatValue completion:self.cancelHandler];
     } else if (shouldSlideDown) {
-        [self dismissAnimated:YES duration:kDefaultAnimationDuration completion:self.cancelHandler];
+        [self dismissAnimated:YES duration:self.dismissalDuration.floatValue completion:self.cancelHandler];
     }
 }
 
@@ -190,11 +223,6 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
 #pragma mark - Actions
 
-- (void)cancelButtonTapped:(id)sender
-{
-    [self dismissAnimated:YES duration:kDefaultAnimationDuration completion:self.cancelHandler];
-}
-
 - (void)tableViewTapped:(UITapGestureRecognizer *)tapGesture
 {
     CGPoint tapGesturePoint = [tapGesture locationInView:nil];
@@ -203,15 +231,13 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     [self.tableView.visibleCells enumerateObjectsUsingBlock:^(UITableViewCell *cell, NSUInteger idx, BOOL *stop) {
         CGRect cellRect = [self.tableView convertRect:cell.frame toView:nil];
         if (CGRectContainsPoint(cellRect, tapGesturePoint)) {
-            NSLog(@"Tapped cell %i", idx);
             shouldDismiss = NO;
-            NSIndexPath *idxPath = [NSIndexPath indexPathForItem:idx inSection:0];
+            NSIndexPath *idxPath = [self.tableView indexPathForCell:cell];
             [self.tableView selectRowAtIndexPath:idxPath animated:NO scrollPosition:UITableViewScrollPositionNone];
-            [self tableView:self.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForItem:idx inSection:0]];
+            [self tableView:self.tableView didSelectRowAtIndexPath:idxPath];
         }
     }];
     if (shouldDismiss) {
-        NSLog(@"Dismissing");
         [self dismissAnimated:YES];
     }
 }
@@ -257,45 +283,57 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     _actionSheetVC = [[AHKActionSheetViewController alloc] initWithNibName:nil bundle:nil];
     _actionSheetVC.actionSheet = self;
     
-    [self setUpCancelButton];
 	[self setUpTableView];
     
-	[viewController presentViewController:_actionSheetVC animated:NO completion:^{
-		[UIView animateKeyframesWithDuration:kDefaultAnimationDuration delay:0 options:0 animations:^{
-            self.blurredBackgroundView.alpha = 1.0f;
-            
-            [UIView addKeyframeWithRelativeStartTime:0.3f relativeDuration:0.7f animations:^{
-                self.cancelButton.frame = CGRectMake(0,
-                                                     CGRectGetMaxY(self.bounds) - self.cancelButtonHeight,
-                                                     CGRectGetWidth(self.bounds),
-                                                     self.cancelButtonHeight);
-                
-                // manual calculation of table's contentSize.height
-                CGFloat tableContentHeight = [self.items count] * self.buttonHeight + CGRectGetHeight(self.tableView.tableHeaderView.frame);
-                
-                CGFloat topInset;
-                BOOL buttonsFitInWithoutScrolling = tableContentHeight < CGRectGetHeight(self.tableView.frame) * (1.0 - topSpaceMarginFraction);
-                if (buttonsFitInWithoutScrolling) {
-                    // show all buttons if there isn't many
-                    topInset = CGRectGetHeight(self.tableView.frame) - tableContentHeight;
-                } else {
-                    // leave an empty space on the top to make the control look similar to UIActionSheet
-                    topInset = round(CGRectGetHeight(self.tableView.frame) * topSpaceMarginFraction);
-                }
-                self.tableView.contentInset = UIEdgeInsetsMake(topInset, 0, 0, 0);
-            }];
-        } completion:^(BOOL finished) {
-            self.userInteractionEnabled = YES;
-        }];
-	}];
+    CGFloat tableContentHeight = ([self.items count] +1) * self.buttonHeight + CGRectGetHeight(self.tableView.tableHeaderView.frame);
     
-    
+    CGFloat topInset;
+    BOOL buttonsFitInWithoutScrolling = tableContentHeight < CGRectGetHeight(self.tableView.frame) * (1.0 - topSpaceMarginFraction);
+    if (buttonsFitInWithoutScrolling) {
+        // show all buttons if there isn't many
+        topInset = CGRectGetHeight(self.tableView.frame) - tableContentHeight;
+    } else {
+        // leave an empty space on the top to make the control look similar to UIActionSheet
+        topInset = round(CGRectGetHeight(self.tableView.frame) * topSpaceMarginFraction);
+    }
+    self.tableView.contentInset = UIEdgeInsetsMake(topInset, 0, 0, 0);
 
-	}
+    CGRect tableViewFrameOriginal = self.tableView.frame;
+    CGRect tableViewFrameOffset = tableViewFrameOriginal;
+    tableViewFrameOffset.origin.y += topInset;
+    
+    self.tableView.frame = tableViewFrameOffset;
+    
+    [self.tableView.visibleCells enumerateObjectsUsingBlock:^(AHKActionSheetTableViewCell *cell, NSUInteger idx, BOOL *stop) {
+        cell.bottomStroke.alpha = 0.0f;
+    }];
+    
+	[viewController presentViewController:_actionSheetVC animated:NO completion:^{
+        [UIView animateWithDuration:self.presentationDuration.floatValue
+                              delay:0
+             usingSpringWithDamping:self.presentationSpringDamping.floatValue
+              initialSpringVelocity:self.presentationSpringVelocity.floatValue
+                            options:0
+                         animations:^{
+                             self.tableView.frame = tableViewFrameOriginal;
+                             self.blurredBackgroundView.alpha = 1.0f;
+                             
+                             [self.tableView.visibleCells enumerateObjectsUsingBlock:^(AHKActionSheetTableViewCell *cell, NSUInteger idx, BOOL *stop) {
+                                 cell.bottomStroke.alpha = 1.0f;
+                             }];
+                             
+                         } completion:^(BOOL finished) {
+                             self.userInteractionEnabled = YES;
+                         }];
+    }];
+    
+    
+    
+}
 
 - (void)dismissAnimated:(BOOL)animated
 {
-	[self dismissAnimated:animated duration:kDefaultAnimationDuration completion:self.cancelHandler];
+	[self dismissAnimated:animated duration:self.dismissalDuration.floatValue completion:self.cancelHandler];
 }
 
 
@@ -358,7 +396,7 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 
     void(^tearDownView)(void) = ^(void) {
         // remove the views because it's easiest to just recreate them if the action sheet is shown again
-        for (UIView *view in @[self.tableView, self.cancelButton, self.blurredBackgroundView, self.backgroundView]) {
+        for (UIView *view in @[self.tableView, self.blurredBackgroundView, self.backgroundView]) {
             [view removeFromSuperview];
         }
         
@@ -369,54 +407,29 @@ static CGFloat topSpaceMarginFraction = 0.333f;
             }
         }];
     };
-
+    
     if (animated) {
         // animate sliding down tableView and cancelButton.
-        [UIView animateWithDuration:duration animations:^{
-            self.blurredBackgroundView.alpha = 0.0f;
-            self.cancelButton.transform = CGAffineTransformTranslate(self.cancelButton.transform, 0, self.cancelButtonHeight);
-            self.cancelButtonShadowView.alpha = 0.0f;
-
-            // Shortest shift of position sufficient to hide all tableView contents below the bottom margin.
-            // contentInset isn't used here (unlike in -show) because it caused weird problems with animations in some cases.
-            CGFloat slideDownMinOffset = MIN(CGRectGetHeight(self.frame) + self.tableView.contentOffset.y, CGRectGetHeight(self.frame));
-            self.tableView.transform = CGAffineTransformMakeTranslation(0, slideDownMinOffset);
-        } completion:^(BOOL finished) {
-            tearDownView();
-        }];
+        
+        [UIView animateWithDuration:duration
+                              delay:0
+                            options:UIViewAnimationOptionCurveEaseIn
+                         animations:^{
+                             self.blurredBackgroundView.alpha = 0.0f;
+                             
+                             // Shortest shift of position sufficient to hide all tableView contents below the bottom margin.
+                             // contentInset isn't used here (unlike in -show) because it caused weird problems with animations in some cases.
+                             CGFloat slideDownMinOffset = MIN(CGRectGetHeight(self.frame) + self.tableView.contentOffset.y, CGRectGetHeight(self.frame));
+                             self.tableView.transform = CGAffineTransformMakeTranslation(0, slideDownMinOffset);
+                             
+                             [self.tableView.visibleCells enumerateObjectsUsingBlock:^(AHKActionSheetTableViewCell *cell, NSUInteger idx, BOOL *stop) {
+                                 cell.bottomStroke.alpha = 0.0f;
+                             }];
+                         } completion:^(BOOL finished) {
+                             tearDownView();
+                         }];
     } else {
         tearDownView();
-    }
-}
-
-- (void)setUpCancelButton
-{
-    UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    NSAttributedString *attrTitle = [[NSAttributedString alloc] initWithString:self.cancelButtonTitle
-                                                                    attributes:self.cancelButtonTextAttributes];
-    [cancelButton setAttributedTitle:attrTitle forState:UIControlStateNormal];
-    [cancelButton addTarget:self action:@selector(cancelButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-    cancelButton.frame = CGRectMake(0,
-                                    CGRectGetMaxY(self.bounds) - self.cancelButtonHeight,
-                                    CGRectGetWidth(self.bounds),
-                                    self.cancelButtonHeight);
-    // move the button below the screen (ready to be animated -show)
-    cancelButton.transform = CGAffineTransformMakeTranslation(0, self.cancelButtonHeight);
-    [self addSubview:cancelButton];
-
-    self.cancelButton = cancelButton;
-
-    // add a small shadow/glow above the button
-    if (self.cancelButtonShadowColor) {
-        self.cancelButton.clipsToBounds = NO;
-        CGFloat gradientHeight = round(self.cancelButtonHeight / 3.0f);
-        UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, -gradientHeight, CGRectGetWidth(self.bounds), gradientHeight)];
-        CAGradientLayer *gradient = [CAGradientLayer layer];
-        gradient.frame = view.bounds;
-        gradient.colors = @[ (id)[UIColor colorWithWhite:0.0 alpha:0.0].CGColor, (id)[self.blurTintColor colorWithAlphaComponent:0.1f].CGColor ];
-        [view.layer insertSublayer:gradient atIndex:0];
-        [self.cancelButton addSubview:view];
-        self.cancelButtonShadowView = view;
     }
 }
 
@@ -427,19 +440,17 @@ static CGFloat topSpaceMarginFraction = 0.333f;
     CGRect frame = CGRectMake(0,
                               statusBarHeight,
                               CGRectGetWidth(self.bounds),
-                              CGRectGetHeight(self.bounds) - statusBarHeight - self.cancelButtonHeight);
+                              CGRectGetHeight(self.bounds) - statusBarHeight);
 
     UITableView *tableView = [[UITableView alloc] initWithFrame:frame];
     tableView.backgroundColor = [UIColor clearColor];
     tableView.showsVerticalScrollIndicator = NO;
     tableView.separatorInset = UIEdgeInsetsZero;
-    if (self.separatorColor) {
-        tableView.separatorColor = self.separatorColor;
-    }
+    tableView.separatorColor = [UIColor clearColor];
 
     tableView.delegate = self;
     tableView.dataSource = self;
-    [tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:kCellIdentifier];
+    [tableView registerClass:[AHKActionSheetTableViewCell class] forCellReuseIdentifier:kCellIdentifier];
     [self insertSubview:tableView aboveSubview:self.blurredBackgroundView];
     // move the content below the screen, ready to be animated in -show
     tableView.contentInset = UIEdgeInsetsMake(CGRectGetHeight(self.bounds), 0, 0, 0);
@@ -456,14 +467,16 @@ static CGFloat topSpaceMarginFraction = 0.333f;
 {
     if (self.title) {
         // paddings similar to those in the UITableViewCell
+        
         static CGFloat leftRightPadding = 15.0f;
         static CGFloat topBottomPadding = 8.0f;
         CGFloat labelWidth = CGRectGetWidth(self.bounds) - 2*leftRightPadding;
 
         NSAttributedString *attrText = [[NSAttributedString alloc] initWithString:self.title attributes:self.titleTextAttributes];
-
+        
         // create a label and calculate its size
         UILabel *label = [[UILabel alloc] init];
+        label.textAlignment = [self.titleTextCenteringEnabled boolValue] ? NSTextAlignmentCenter : NSTextAlignmentLeft;
         label.numberOfLines = 0;
         [label setAttributedText:attrText];
         CGSize labelSize = [label sizeThatFits:CGSizeMake(labelWidth, MAXFLOAT)];
@@ -498,7 +511,7 @@ static CGFloat topSpaceMarginFraction = 0.333f;
         // limit alpha to the interval [0, 1]
         CGFloat alpha = MAX(MIN(alphaWithoutBounds, 1.0f), 0.0f);
         self.blurredBackgroundView.alpha = alpha;
-        self.cancelButtonShadowView.alpha = alpha;
+//        self.cancelButtonShadowView.alpha = alpha;
     }
 }
 

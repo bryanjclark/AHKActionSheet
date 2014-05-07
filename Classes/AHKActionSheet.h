@@ -42,6 +42,8 @@ typedef void(^AHKActionSheetHandler)(AHKActionSheet *actionSheet);
 @property (strong, nonatomic) NSNumber *automaticallyTintButtonImages UI_APPEARANCE_SELECTOR;
 /// Boxed boolean value. Useful when adding buttons without images (in that case text looks better centered). Disabled by default.
 @property (strong, nonatomic) NSNumber *buttonTextCenteringEnabled UI_APPEARANCE_SELECTOR;
+/// Boxed boolean value. Disabled by default.
+@property (strong, nonatomic) NSNumber *titleTextCenteringEnabled UI_APPEARANCE_SELECTOR;
 /// Color of the separator between buttons.
 @property (strong, nonatomic) UIColor *separatorColor UI_APPEARANCE_SELECTOR;
 /// Background color of the button when it's tapped (internally it's a UITableViewCell)
@@ -51,6 +53,13 @@ typedef void(^AHKActionSheetHandler)(AHKActionSheet *actionSheet);
 @property (copy, nonatomic) NSDictionary *buttonTextAttributes UI_APPEARANCE_SELECTOR;
 @property (copy, nonatomic) NSDictionary *destructiveButtonTextAttributes UI_APPEARANCE_SELECTOR;
 @property (copy, nonatomic) NSDictionary *cancelButtonTextAttributes UI_APPEARANCE_SELECTOR;
+
+//Animation Jammers
+@property (strong, nonatomic) NSNumber *presentationSpringVelocity UI_APPEARANCE_SELECTOR;
+@property (strong, nonatomic) NSNumber *presentationSpringDamping UI_APPEARANCE_SELECTOR;
+@property (strong, nonatomic) NSNumber *presentationDuration UI_APPEARANCE_SELECTOR;
+@property (strong, nonatomic) NSNumber *dismissalDuration UI_APPEARANCE_SELECTOR;
+@property (strong, nonatomic) NSNumber *dismissalDurationFlick UI_APPEARANCE_SELECTOR;
 
 
 /// Called on every type of dismissal (tapping on "Cancel" or swipe down or flick down).
