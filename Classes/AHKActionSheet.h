@@ -54,6 +54,9 @@ typedef void(^AHKActionSheetHandler)(AHKActionSheet *actionSheet);
 @property (copy, nonatomic) NSDictionary *destructiveButtonTextAttributes UI_APPEARANCE_SELECTOR;
 @property (copy, nonatomic) NSDictionary *cancelButtonTextAttributes UI_APPEARANCE_SELECTOR;
 
+@property (strong, nonatomic) UIColor *destructiveButtonBackgroundColor UI_APPEARANCE_SELECTOR;
+
+
 //Animation Jammers
 @property (strong, nonatomic) NSNumber *presentationSpringVelocity UI_APPEARANCE_SELECTOR;
 @property (strong, nonatomic) NSNumber *presentationSpringDamping UI_APPEARANCE_SELECTOR;

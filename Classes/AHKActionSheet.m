@@ -69,6 +69,7 @@ static CGFloat topSpaceMarginFraction = 0.0f;
     [appearance setBlurSaturationDeltaFactor:1.8f];
     [appearance setButtonHeight:60.0f];
     [appearance setCancelButtonHeight:44.0f];
+    [appearance setDestructiveButtonBackgroundColor:[UIColor clearColor]];
     [appearance setAutomaticallyTintButtonImages:@YES];
     [appearance setSelectedBackgroundColor:[UIColor colorWithWhite:0.1 alpha:0.2]];
     [appearance setCancelButtonTextAttributes:@{ NSFontAttributeName : [UIFont systemFontOfSize:17.0f],
@@ -143,6 +144,8 @@ static CGFloat topSpaceMarginFraction = 0.0f;
         NSAttributedString *attrTitle = [[NSAttributedString alloc] initWithString:item.title attributes:attributes];
         cell.textLabel.attributedText = attrTitle;
         cell.textLabel.textAlignment = [self.buttonTextCenteringEnabled boolValue] ? NSTextAlignmentCenter : NSTextAlignmentLeft;
+        
+        cell.backgroundColor = item.type == AHKActionSheetButtonTypeDefault ? [UIColor clearColor] : self.destructiveButtonBackgroundColor;
         
         // Use image with template mode with color the same as the text (when enabled).
         cell.imageView.image = [self.automaticallyTintButtonImages boolValue] ? [item.image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] : item.image;
